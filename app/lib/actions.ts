@@ -5,7 +5,7 @@ import { sql } from '@vercel/postgres';
 import { AuthError } from 'next-auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { z } from 'zod';
+import { CreateInvoiceSchema, SignInSchema, UpdateInvoiceSchema } from './zod';
 
 // This is temporary until @types/react-dom is updated
 export type State = {
@@ -17,25 +17,8 @@ export type State = {
     message?: string | null;
 };
 
-const FormSchema = z.object({
-    id: z.string(),
-    customerId: z.string({
-        invalid_type_error: 'Please select a customer.',
-    }),
-    amount: z.coerce
-        .number()
-        .gt(0, { message: 'Please enter an amount greater than $0.' }),
-    status: z.enum(['pending', 'paid'], {
-        invalid_type_error: 'Please select an invoice status.',
-    }),
-    date: z.string(),
-});
-
-const CreateInvoice = FormSchema.omit({ id: true, date: true });
-const UpdateInvoice = FormSchema.omit({ id: true, date: true });
-
 export async function createInvoice(prevState: State, formData: FormData) {
-    const validatedFields = CreateInvoice.safeParse({
+    const validatedFields = CreateInvoiceSchema.safeParse({
         customerId: formData.get('customerId'),
         amount: formData.get('amount'),
         status: formData.get('status'),
@@ -70,7 +53,7 @@ export async function createInvoice(prevState: State, formData: FormData) {
 }
 
 export async function updateInvoice(id: string, prevState: State, formData: FormData) {
-    const validatedFields = UpdateInvoice.safeParse({
+    const validatedFields = UpdateInvoiceSchema.safeParse({
         customerId: formData.get('customerId'),
         amount: formData.get('amount'),
         status: formData.get('status'),
@@ -113,20 +96,47 @@ export async function deleteInvoice(id: string) {
 }
 
 export async function authenticate(
-    prevState: string | undefined,
+    prevState: {
+        errors?: {
+            email?: string[];
+            password?: string[];
+        };
+        message?: string | null;
+    } | undefined,
     formData: FormData,
 ) {
+    const validatedFields = SignInSchema.safeParse({
+        email: formData.get("email"),
+        password: formData.get("password")
+    });
+    if (!validatedFields.success) {
+        return {
+            errors: validatedFields.error.flatten().fieldErrors,
+            message: 'Missing Fields. Failed to Signin.',
+        };
+    }
     try {
         await signIn('credentials', formData);
     } catch (error) {
+        console.log(error)
         if (error instanceof AuthError) {
             switch (error.type) {
                 case 'CredentialsSignin':
-                    return 'Invalid credentials.';
+                    return {
+                        errors: {},
+                        message: 'Invalid Credentials.',
+                    };
                 default:
-                    return 'Something went wrong.';
+                    return {
+                        errors: {},
+                        message: 'Something went wrong.',
+                    };
             }
         }
         throw error;
     }
+}
+
+export async function authenticateWithThirdPartyProvider(providerId: string, formData: FormData) {
+    await signIn(providerId);
 }
